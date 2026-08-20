@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, ToolException
 from langchain_core.utils import secret_from_env
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 _CLIENT_NAME = "langchain-wavespeed"
+#: Default wait deadline, matching the n8n node. ``None`` would wait forever and
+#: strand the calling agent.
+_DEFAULT_TIMEOUT = 600.0
 
 
 class _BaseWaveSpeedTool(BaseTool):
@@ -29,11 +33,14 @@ class _BaseWaveSpeedTool(BaseTool):
         description="WaveSpeed API key. Reads WAVESPEED_API_KEY if not given.",
     )
     timeout: float | None = Field(
-        default=None,
-        description="Maximum seconds to wait for a prediction (None = no limit).",
+        default=_DEFAULT_TIMEOUT,
+        description=(
+            "Maximum seconds to wait for a prediction. Explicitly pass None to "
+            "wait indefinitely; the task keeps running server-side either way."
+        ),
     )
     poll_interval: float = Field(
-        default=1.0,
+        default=2.0,
         description="Seconds between result polls.",
     )
     client: Any | None = Field(
@@ -50,34 +57,57 @@ class _BaseWaveSpeedTool(BaseTool):
             self.client = Client(
                 api_key=self.api_key.get_secret_value() if self.api_key else None,
                 client_name=_CLIENT_NAME,
+                # Never let a host-configured default turn one tool call into a
+                # second, separately billed submission.
+                max_retries=0,
             )
         return self
 
+    @staticmethod
+    def _format_output(output: Any) -> str:
+        """Render one platform output as a line an LLM can use."""
+        if isinstance(output, str):
+            return output
+        if isinstance(output, dict):
+            url = output.get("url")
+            if isinstance(url, str):
+                return url
+        return json.dumps(output, default=str)
+
     def _run_model(self, model: str, input: dict[str, Any]) -> str:
         payload = {k: v for k, v in input.items() if v is not None}
-        result = self.client.run(
-            model,
-            payload,
-            timeout=self.timeout,
-            poll_interval=self.poll_interval,
-        )
+        try:
+            result = self.client.run(
+                model,
+                payload,
+                timeout=self.timeout,
+                poll_interval=self.poll_interval,
+            )
+        except Exception as e:  # noqa: BLE001 - surfaced to the agent verbatim
+            # The SDK's messages already carry "(task_id: ...)" and the platform
+            # error text; keep them so a failed paid task stays traceable.
+            raise ToolException(f"WaveSpeed model {model!r} failed: {e}") from e
         outputs = result.get("outputs") or []
         if not outputs:
-            raise RuntimeError(f"WaveSpeed model {model!r} returned no outputs.")
-        return "\n".join(str(o) for o in outputs)
+            raise ToolException(f"WaveSpeed model {model!r} returned no outputs.")
+        return "\n".join(self._format_output(o) for o in outputs)
 
 
 class ImageGenerationInput(BaseModel):
     """Input for WaveSpeed image generation."""
 
     prompt: str = Field(description="Text description of the image to generate.")
-    size: str | None = Field(
+    resolution: str | None = Field(
         default=None,
-        description='Output resolution as "width*height", e.g. "2048*2048".',
+        description=(
+            'Output resolution tier: "1k", "1.5k" or "2k". Higher tiers cost more.'
+        ),
     )
-    seed: int | None = Field(
+    aspect_ratio: str | None = Field(
         default=None,
-        description="Random seed for reproducible results (-1 for random).",
+        description=(
+            'Aspect ratio of the generated image, e.g. "1:1", "16:9", "9:16", "4:3".'
+        ),
     )
 
 
@@ -111,12 +141,13 @@ class WaveSpeedImageGeneration(_BaseWaveSpeedTool):
     def _run(
         self,
         prompt: str,
-        size: str | None = None,
-        seed: int | None = None,
+        resolution: str | None = None,
+        aspect_ratio: str | None = None,
         **kwargs: Any,
     ) -> str:
         return self._run_model(
-            self.model, {"prompt": prompt, "size": size, "seed": seed}
+            self.model,
+            {"prompt": prompt, "resolution": resolution, "aspect_ratio": aspect_ratio},
         )
 
 
@@ -127,10 +158,6 @@ class VideoGenerationInput(BaseModel):
     duration: int | None = Field(
         default=None,
         description="Video duration in seconds (model-dependent, e.g. 5 or 10).",
-    )
-    seed: int | None = Field(
-        default=None,
-        description="Random seed for reproducible results (-1 for random).",
     )
 
 
@@ -165,12 +192,9 @@ class WaveSpeedVideoGeneration(_BaseWaveSpeedTool):
         self,
         prompt: str,
         duration: int | None = None,
-        seed: int | None = None,
         **kwargs: Any,
     ) -> str:
-        return self._run_model(
-            self.model, {"prompt": prompt, "duration": duration, "seed": seed}
-        )
+        return self._run_model(self.model, {"prompt": prompt, "duration": duration})
 
 
 class RunModelInput(BaseModel):
@@ -182,6 +206,25 @@ class RunModelInput(BaseModel):
     input: dict[str, Any] = Field(
         description="Input parameters for the model (e.g. {'prompt': '...'})."
     )
+
+    @field_validator("input", mode="before")
+    @classmethod
+    def _coerce_json_input(cls, value: Any) -> Any:
+        """Accept the JSON *string* many models emit instead of a JSON object."""
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"'input' must be a JSON object or a valid JSON string: {e}"
+                ) from e
+            if not isinstance(parsed, dict):
+                raise ValueError(
+                    "'input' must decode to a JSON object, "
+                    f"got {type(parsed).__name__}."
+                )
+            return parsed
+        return value
 
 
 class WaveSpeedRunModel(_BaseWaveSpeedTool):

@@ -25,7 +25,13 @@ Generate images from text prompts (defaults to `bytedance/seedream-v5.0-pro`):
 from langchain_wavespeed import WaveSpeedImageGeneration
 
 tool = WaveSpeedImageGeneration()
-url = tool.invoke({"prompt": "A red panda drinking boba tea, studio lighting"})
+url = tool.invoke(
+    {
+        "prompt": "A red panda drinking boba tea, studio lighting",
+        "resolution": "2k",      # optional: "1k" | "1.5k" | "2k"
+        "aspect_ratio": "16:9",  # optional
+    }
+)
 print(url)  # https://.../output.png
 ```
 
@@ -78,10 +84,17 @@ All tools accept:
 | --- | --- | --- |
 | `api_key` | `WAVESPEED_API_KEY` env var | WaveSpeed API key |
 | `model` | tool-specific | Model id to run (image/video tools) |
-| `timeout` | `None` | Max seconds to wait for a prediction |
-| `poll_interval` | `1.0` | Seconds between result polls |
+| `timeout` | `600.0` | Max seconds to wait for a prediction (`None` waits forever) |
+| `poll_interval` | `2.0` | Seconds between result polls |
 
-Async is supported out of the box via `await tool.ainvoke(...)`.
+When a prediction fails or times out, the tool raises `ToolException` with the
+platform's error text and the task id, so a paid task stays traceable (and an
+agent can read the failure instead of crashing the run). A timeout only stops
+the waiting - the task keeps running server-side.
+
+`await tool.ainvoke(...)` works, but note that the underlying WaveSpeed SDK is
+synchronous: LangChain runs the blocking call in a worker thread, so it will not
+block your event loop, but it is not natively async I/O.
 
 ## License
 

@@ -56,7 +56,7 @@ def test_video_generation_invokes_default_model() -> None:
     result = tool.invoke({"prompt": "a drone shot", "duration": 5})
     assert result == VIDEO_URL
     args, _ = client.run.call_args
-    assert args[0] == "bytedance/seedance-2.5/text-to-video"
+    assert args[0] == "wavespeed-ai/minimax-h3/text-to-video"
     assert args[1] == {"prompt": "a drone shot", "duration": 5}
 
 

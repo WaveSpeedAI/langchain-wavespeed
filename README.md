@@ -37,7 +37,7 @@ print(url)  # https://.../output.png
 
 ### WaveSpeedVideoGeneration
 
-Generate videos from text prompts (defaults to `bytedance/seedance-2.5/text-to-video`):
+Generate videos from text prompts (defaults to `wavespeed-ai/minimax-h3/text-to-video`, the cheap open-weights starting point; pass `model="bytedance/seedance-2.5/text-to-video"` for the highest quality):
 
 ```python
 from langchain_wavespeed import WaveSpeedVideoGeneration

@@ -184,7 +184,7 @@ class WaveSpeedVideoGeneration(_BaseWaveSpeedTool):
     )
     args_schema: type[BaseModel] = VideoGenerationInput
     model: str = Field(
-        default="bytedance/seedance-2.5/text-to-video",
+        default="wavespeed-ai/minimax-h3/text-to-video",
         description="WaveSpeed model id to run.",
     )
 

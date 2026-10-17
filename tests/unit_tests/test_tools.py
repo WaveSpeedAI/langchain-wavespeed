@@ -102,12 +102,12 @@ async def test_async_invoke_delegates_to_sync() -> None:
     assert result == IMAGE_URL
 
 
-def test_default_timeout_is_bounded() -> None:
+def test_default_timeout_is_unset() -> None:
     client = make_client([IMAGE_URL])
     tool = WaveSpeedImageGeneration(api_key=API_KEY, client=client)
     tool.invoke({"prompt": "a cat"})
     _, kwargs = client.run.call_args
-    assert kwargs["timeout"] == 600.0
+    assert kwargs["timeout"] is None
     assert kwargs["poll_interval"] == 2.0
 
 
@@ -198,7 +198,7 @@ def test_platform_failure_becomes_tool_exception() -> None:
 def test_timeout_becomes_tool_exception_with_task_id() -> None:
     client = MagicMock()
     client.run.side_effect = TimeoutError(
-        "Prediction timed out after 600 seconds (task_id: task-9)"
+        "Prediction timed out after 120 seconds (task_id: task-9)"
     )
     tool = WaveSpeedVideoGeneration(api_key=API_KEY, client=client)
     with pytest.raises(ToolException, match="task_id: task-9"):

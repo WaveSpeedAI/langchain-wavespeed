@@ -84,7 +84,7 @@ All tools accept:
 | --- | --- | --- |
 | `api_key` | `WAVESPEED_API_KEY` env var | WaveSpeed API key |
 | `model` | tool-specific | Model id to run (image/video tools) |
-| `timeout` | `600.0` | Max seconds to wait for a prediction (`None` waits forever) |
+| `timeout` | `None` | Optional max seconds to wait for a prediction (unset: no short cap, long tasks can run for hours) |
 | `poll_interval` | `2.0` | Seconds between result polls |
 
 When a prediction fails or times out, the tool raises `ToolException` with the

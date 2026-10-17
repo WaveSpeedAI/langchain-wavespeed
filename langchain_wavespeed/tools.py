@@ -11,9 +11,6 @@ from langchain_core.utils import secret_from_env
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 _CLIENT_NAME = "langchain-wavespeed"
-#: Default wait deadline, matching the n8n node. ``None`` would wait forever and
-#: strand the calling agent.
-_DEFAULT_TIMEOUT = 600.0
 
 
 # A submit that ends without a confirmed 2xx (5xx, read timeout, connection
@@ -52,10 +49,11 @@ class _BaseWaveSpeedTool(BaseTool):
         description="WaveSpeed API key. Reads WAVESPEED_API_KEY if not given.",
     )
     timeout: float | None = Field(
-        default=_DEFAULT_TIMEOUT,
+        default=None,
         description=(
-            "Maximum seconds to wait for a prediction. Explicitly pass None to "
-            "wait indefinitely; the task keeps running server-side either way."
+            "Optional maximum seconds to wait for a prediction. Unset (None) "
+            "uses the SDK default, which does not impose a short cap; the task "
+            "keeps running server-side either way."
         ),
     )
     poll_interval: float = Field(

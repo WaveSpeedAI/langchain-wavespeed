@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from langchain_core.tools import BaseTool, ToolException
@@ -13,6 +14,24 @@ _CLIENT_NAME = "langchain-wavespeed"
 #: Default wait deadline, matching the n8n node. ``None`` would wait forever and
 #: strand the calling agent.
 _DEFAULT_TIMEOUT = 600.0
+
+
+# A submit that ends without a confirmed 2xx (5xx, read timeout, connection
+# reset) may still have created the task; the SDK never re-POSTs, so tell the
+# agent not to do it either.
+_AMBIGUOUS_SUBMIT = re.compile(
+    r"did not return a response|Failed to submit prediction: HTTP 5\d\d"
+)
+_AMBIGUOUS_SUBMIT_HINT = (
+    " The task may already exist: do not retry blindly; check your recent"
+    " predictions first."
+)
+
+
+def _with_submit_hint(message: str) -> str:
+    if _AMBIGUOUS_SUBMIT.search(message):
+        return message + _AMBIGUOUS_SUBMIT_HINT
+    return message
 
 
 class _BaseWaveSpeedTool(BaseTool):
@@ -86,7 +105,9 @@ class _BaseWaveSpeedTool(BaseTool):
         except Exception as e:  # noqa: BLE001 - surfaced to the agent verbatim
             # The SDK's messages already carry "(task_id: ...)" and the platform
             # error text; keep them so a failed paid task stays traceable.
-            raise ToolException(f"WaveSpeed model {model!r} failed: {e}") from e
+            raise ToolException(
+                f"WaveSpeed model {model!r} failed: {_with_submit_hint(str(e))}"
+            ) from e
         outputs = result.get("outputs") or []
         if not outputs:
             raise ToolException(f"WaveSpeed model {model!r} returned no outputs.")

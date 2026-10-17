@@ -203,3 +203,40 @@ def test_timeout_becomes_tool_exception_with_task_id() -> None:
     tool = WaveSpeedVideoGeneration(api_key=API_KEY, client=client)
     with pytest.raises(ToolException, match="task_id: task-9"):
         tool.invoke({"prompt": "a drone shot"})
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("Failed to submit prediction: HTTP 504: gateway timeout"),
+        RuntimeError(
+            "Prediction submission did not return a response. The task may already "
+            "have been created, so the SDK will not retry the POST automatically."
+        ),
+    ],
+)
+def test_ambiguous_submit_failure_tells_agent_not_to_retry_blindly(
+    error: Exception,
+) -> None:
+    client = MagicMock()
+    client.run.side_effect = error
+    tool = WaveSpeedImageGeneration(api_key=API_KEY, client=client)
+    with pytest.raises(ToolException, match="do not retry blindly") as exc:
+        tool.invoke({"prompt": "a cat"})
+    assert "check your recent predictions" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Failed to submit prediction: HTTP 401: bad key",
+        "Prediction failed (task_id: task-9): NSFW content",
+    ],
+)
+def test_definite_failures_get_no_retry_hint(message: str) -> None:
+    client = MagicMock()
+    client.run.side_effect = RuntimeError(message)
+    tool = WaveSpeedImageGeneration(api_key=API_KEY, client=client)
+    with pytest.raises(ToolException) as exc:
+        tool.invoke({"prompt": "a cat"})
+    assert "retry blindly" not in str(exc.value)
